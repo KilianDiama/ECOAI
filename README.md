@@ -71,7 +71,7 @@ Secure file encryption	,
 Quantized model (CPU)	,
 Business export (Excel)	,
 Audit logs per user	,
-Clustering integration	,
+Clustering integration	.
 
 ## 🔒 License
 This project is released under the MIT License.
