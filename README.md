@@ -65,13 +65,13 @@ Logs predictions
 Saves an Excel business report
 
 ## 🏆 Why EcoAI?
-Feature	EcoAI	Standard NLP
-CO₂ tracking	✅	❌
-Secure file encryption	✅	❌
-Quantized model (CPU)	✅	❌
-Business export (Excel)	✅	❌
-Audit logs per user	✅	❌
-Clustering integration	✅	❌
+
+CO₂ tracking	,
+Secure file encryption	,
+Quantized model (CPU)	,
+Business export (Excel)	,
+Audit logs per user	,
+Clustering integration	,
 
 ## 🔒 License
 This project is released under the MIT License.
