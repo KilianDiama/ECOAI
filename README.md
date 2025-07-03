@@ -34,10 +34,8 @@ It combines **secure data handling**, **low-carbon AI predictions**, and **busin
 pip install -r requirements.txt
 You need Python 3.8+ and packages listed in requirements.txt
 
-🧪 Example Usage
-python
-Copier
-Modifier
+## 🧪 Example Usage
+
 from ecoai import EcoAI
 
 texts = [
@@ -55,7 +53,7 @@ reduced, clusters, score = eco.reduce_and_cluster(features)
 
 eco.export_results(texts, predictions, clusters, output_format="excel")
 eco.summary()
-📈 Results Dashboard
+## 📈 Results Dashboard
 
 python demo.py
 Clusters your text
@@ -66,7 +64,7 @@ Logs predictions
 
 Saves an Excel business report
 
-🏆 Why EcoAI?
+## 🏆 Why EcoAI?
 Feature	EcoAI	Standard NLP
 CO₂ tracking	✅	❌
 Secure file encryption	✅	❌
@@ -75,18 +73,18 @@ Business export (Excel)	✅	❌
 Audit logs per user	✅	❌
 Clustering integration	✅	❌
 
-🔒 License
+## 🔒 License
 This project is released under the MIT License.
 For commercial licensing, extended support, or a private "Pro" version, please contact the author.
 
-💬 Get Involved
+## 💬 Get Involved
 ⭐ Star this project to support green AI
 
 📧 Contact for consulting, integration, or commercial license
 
 ❤️ Sponsor this project to support future development
 
-🧑‍💻 Author
+## 🧑‍💻 Author
 Developed by KilianDiama 
 EcoAI is part of a broader initiative to bring Green AI to production.
 
