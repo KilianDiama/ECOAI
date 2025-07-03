@@ -89,3 +89,5 @@ Developed by KilianDiama
 EcoAI is part of a broader initiative to bring Green AI to production.
 
 "Make AI smarter, greener, and safer."
+
+- 📧 Email: diamajax@gmail.com
