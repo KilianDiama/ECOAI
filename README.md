@@ -1,4 +1,4 @@
-# 🌿 EcoAI — Green & Secure NLP Toolkit for Business
+# 🌿 EcoAI — Green & Secure NLP Toolkit
 
 **EcoAI** is a production-ready, energy-efficient, and privacy-conscious NLP pipeline.  
 It combines **secure data handling**, **low-carbon AI predictions**, and **business-ready exports** in one modular Python framework.
