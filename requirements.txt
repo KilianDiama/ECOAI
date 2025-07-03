@@ -1,0 +1,9 @@
+transformers
+torch
+codecarbon
+pandas
+scikit-learn
+umap-learn
+cryptography
+sentence-transformers
+joblib
