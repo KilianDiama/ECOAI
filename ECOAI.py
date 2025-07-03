@@ -1,30 +1,32 @@
 import os
 import time
 import hashlib
-import joblib
-import numpy as np
-import logging
 import json
-from codecarbon import EmissionsTracker
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-from torch.quantization import quantize_dynamic
-import torch
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
-from umap import UMAP
-from typing import List, Dict, Optional, Any, Tuple
+import logging
+import base64
+import numpy as np
+import pandas as pd
+from typing import List, Optional, Any, Tuple
+
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-import base64
-import pandas as pd
 
-# -------------- LOGGING CONFIG  --------------
+from codecarbon import EmissionsTracker
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+from torch.quantization import quantize_dynamic
+import torch
+
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from umap import UMAP
+
+# --- Logging config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("EcoAI")
 
-# -------------- SECURE FILE MANAGER  --------------
+# --- Secure file manager
 class SecureFileManager:
     def __init__(self, master_password: str, base_dir: str = "files"):
         self.master_password = master_password.encode()
@@ -36,11 +38,8 @@ class SecureFileManager:
 
     def _derive_key(self, salt: bytes) -> bytes:
         kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=100000,
-            backend=default_backend(),
+            algorithm=hashes.SHA256(), length=32, salt=salt,
+            iterations=100000, backend=default_backend()
         )
         return kdf.derive(self.master_password)
 
@@ -50,46 +49,39 @@ class SecureFileManager:
         iv = os.urandom(12)
         cipher = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend())
         encryptor = cipher.encryptor()
-        encrypted_data = encryptor.update(data) + encryptor.finalize()
-        return base64.b64encode(salt + iv + encryptor.tag + encrypted_data).decode("utf-8")
+        encrypted = encryptor.update(data) + encryptor.finalize()
+        return base64.b64encode(salt + iv + encryptor.tag + encrypted).decode("utf-8")
 
     def decrypt_data(self, encrypted_data: str) -> bytes:
-        decoded_data = base64.b64decode(encrypted_data)
-        salt = decoded_data[:16]
-        iv = decoded_data[16:28]
-        tag = decoded_data[28:44]
-        ciphertext = decoded_data[44:]
+        decoded = base64.b64decode(encrypted_data)
+        salt, iv, tag, ciphertext = decoded[:16], decoded[16:28], decoded[28:44], decoded[44:]
         key = self._derive_key(salt)
         cipher = Cipher(algorithms.AES(key), modes.GCM(iv, tag), backend=default_backend())
-        decryptor = cipher.decryptor()
-        return decryptor.update(ciphertext) + decryptor.finalize()
+        return cipher.decryptor().update(ciphertext) + cipher.decryptor().finalize()
 
     def save_encrypted_json(self, data: dict, file_name: str):
-        json_bytes = json.dumps(data).encode("utf-8")
-        encrypted = self.encrypt_data(json_bytes)
+        content = json.dumps(data).encode("utf-8")
+        encrypted = self.encrypt_data(content)
         with open(os.path.join(self.base_dir, file_name), "w") as f:
             f.write(encrypted)
 
     def load_encrypted_json(self, file_name: str) -> dict:
         with open(os.path.join(self.base_dir, file_name), "r") as f:
             encrypted = f.read()
-        json_bytes = self.decrypt_data(encrypted)
-        return json.loads(json_bytes.decode("utf-8"))
+        content = self.decrypt_data(encrypted)
+        return json.loads(content.decode("utf-8"))
 
     def save_encrypted_csv(self, df: pd.DataFrame, file_name: str):
-        csv_bytes = df.to_csv(index=False).encode("utf-8")
-        encrypted = self.encrypt_data(csv_bytes)
+        encrypted = self.encrypt_data(df.to_csv(index=False).encode("utf-8"))
         with open(os.path.join(self.base_dir, file_name), "w") as f:
             f.write(encrypted)
 
     def load_encrypted_csv(self, file_name: str) -> pd.DataFrame:
         with open(os.path.join(self.base_dir, file_name), "r") as f:
             encrypted = f.read()
-        csv_bytes = self.decrypt_data(encrypted)
         from io import StringIO
-        return pd.read_csv(StringIO(csv_bytes.decode("utf-8")))
-
-# ----------- DATA VALIDATION  -----------
+        return pd.read_csv(StringIO(self.decrypt_data(encrypted).decode("utf-8")))
+# ----------- DATA VALIDATION -----------
 class DataValidationService:
     @staticmethod
     def validate_type(data: Any, expected_type: type) -> bool:
@@ -101,7 +93,7 @@ class DataValidationService:
             return len(data) > 0
         return bool(data)
 
-# ----------- AUDIT/USER LOGGER -----------
+# ----------- AUDIT / USER LOGGER -----------
 class InteractionLogger:
     def __init__(self, storage_path="interactions", encrypted=True, password="changeme"):
         self.storage_path = storage_path
@@ -135,14 +127,14 @@ class InteractionLogger:
             with open(os.path.join(self.storage_path, file), "w") as f:
                 json.dump(data, f, indent=4)
 
-# ---------- ECOAI ----------
+# ---------- ECOAI CLASS ----------
 class EcoAI:
     def __init__(
         self,
         model_name="distilbert-base-uncased",
         cache_dir="eco_cache",
         task="sentiment-analysis",
-        master_password: Optional[str]=None,
+        master_password: Optional[str] = None,
         business_name: Optional[str] = "EcoAI_Business"
     ):
         self.logger = logger
@@ -162,9 +154,9 @@ class EcoAI:
         self.tracker = EmissionsTracker(measure_power_secs=1, output_file=os.path.join(cache_dir, "emissions.csv"))
         self.energy_log = []
         self.validator = DataValidationService()
-        self.interaction_logger = InteractionLogger(storage_path=os.path.join(cache_dir,"interactions"), encrypted=True, password=self.master_password)
+        self.interaction_logger = InteractionLogger(storage_path=os.path.join(cache_dir, "interactions"), encrypted=True, password=self.master_password)
         self.business_name = business_name
-        self.logger.info(f"🌱 {business_name} prêt à gagner du blé ! (sécurisé, production-ready)")
+        self.logger.info(f"🌱 {business_name} ready to save energy and make money!")
 
     def _hash(self, text: str) -> str:
         return hashlib.sha256(text.strip().lower().encode()).hexdigest()
@@ -174,14 +166,22 @@ class EcoAI:
             try:
                 return self.file_manager.load_encrypted_json("predictions_cache_encrypted.json")
             except Exception as e:
-                self.logger.warning(f"Erreur chargement cache chiffré: {e}")
+                self.logger.warning(f"Cache load error: {e}")
         return {}
 
     def _save_cache(self):
         try:
             self.file_manager.save_encrypted_json(self.cache, "predictions_cache_encrypted.json")
         except Exception as e:
-            self.logger.warning(f"Erreur sauvegarde cache chiffré: {e}")
+            self.logger.warning(f"Cache save error: {e}")
+    def _select_model(self, text: str):
+        """Choose lightweight model for short texts, main model otherwise."""
+        if len(text.split()) < 6:
+            tiny_model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+            tokenizer = AutoTokenizer.from_pretrained(tiny_model_name)
+            model = AutoModelForSequenceClassification.from_pretrained(tiny_model_name)
+            return pipeline(self.task, model=model, tokenizer=tokenizer)
+        return self.pipe
 
     def predict(self, text: str, user_id: str = "public") -> dict:
         key = self._hash(text)
@@ -189,11 +189,12 @@ class EcoAI:
             self.logger.debug("Cache hit.")
             result = self.cache[key]
         else:
-            self.logger.info(f"Inference sur : '{text}'")
+            self.logger.info(f"Running inference on: '{text}'")
+            pipe = self._select_model(text)
             self.tracker.start()
             start = time.time()
             try:
-                result = self.pipe(text)[0]
+                result = pipe(text)[0]
             finally:
                 duration = time.time() - start
                 emissions = self.tracker.stop()
@@ -215,14 +216,16 @@ class EcoAI:
                 to_predict.append(texts[i])
                 to_indices.append(i)
         if to_predict:
-            self.logger.info(f"Batch inference de {len(to_predict)} textes...")
+            self.logger.info(f"Batch inference on {len(to_predict)} texts...")
             self.tracker.start()
             start = time.time()
-            try:
-                preds = self.pipe(to_predict)
-            finally:
-                duration = time.time() - start
-                emissions = self.tracker.stop()
+            preds = []
+            # Dynamic routing per text
+            for txt in to_predict:
+                pipe = self._select_model(txt)
+                preds.append(pipe(txt)[0])
+            duration = time.time() - start
+            emissions = self.tracker.stop()
             for idx, pred in zip(to_indices, preds):
                 key = keys[idx]
                 self.cache[key] = pred
@@ -235,22 +238,15 @@ class EcoAI:
 
     def reduce_and_cluster(self, features: np.ndarray, dim=2, n_clusters=3) -> Tuple[np.ndarray, np.ndarray, float]:
         if not self.validator.validate_type(features, np.ndarray) or not self.validator.validate_nonempty(features):
-            raise ValueError("Features invalides pour clustering.")
+            raise ValueError("Invalid features for clustering.")
         reducer = UMAP(n_components=dim, random_state=42)
         reduced = reducer.fit_transform(features)
         kmeans = KMeans(n_clusters=n_clusters, random_state=42)
         labels = kmeans.fit_predict(reduced)
         score = silhouette_score(reduced, labels)
         return reduced, labels, score
-
-    def get_embeddings(self, texts: List[str], model_name='all-MiniLM-L6-v2') -> np.ndarray:
-        from sentence_transformers import SentenceTransformer
-        embedder = SentenceTransformer(model_name)
-        return embedder.encode(texts, show_progress_bar=False)
-
-    # ----------------- REPORT/EXPORT -----------------
+    # ----------------- REPORT / EXPORT -----------------
     def export_results(self, texts: List[str], predictions: List[dict], clusters: np.ndarray, output_format="excel"):
-        # Assemble results DataFrame
         df = pd.DataFrame({
             "Text": texts,
             "Prediction": [p["label"] if p else None for p in predictions],
@@ -268,19 +264,20 @@ class EcoAI:
             out_path = os.path.join(self.cache_dir, f"{out_name}.json")
             df.to_json(out_path, orient="records")
         else:
-            raise ValueError("Format non supporté.")
-        self.logger.info(f"Résultats exportés: {out_path}")
+            raise ValueError("Unsupported output format.")
+        self.logger.info(f"Results exported: {out_path}")
         return out_path
 
     def summary(self):
         total_time = sum(d for d, _ in self.energy_log)
         total_emissions = sum(e for _, e in self.energy_log)
-        print(f"\n⚡ Temps total de prédiction : {total_time:.2f} s")
-        print(f"🌍 Émissions totales de CO₂ : {total_emissions:.6f} kg")
-        print(f"♻️ Nombre de prédictions uniques en cache : {len(self.cache)}")
-        print(f"📚 Logs stockés dans : {self.interaction_logger.storage_path}")
+        print(f"\n⚡ Total prediction time : {total_time:.2f} seconds")
+        print(f"🌍 Total CO₂ emissions : {total_emissions:.6f} kg")
+        print(f"♻️ Cached unique predictions : {len(self.cache)}")
+        print(f"📚 Logs stored in : {self.interaction_logger.storage_path}")
 
-# =========== EXEMPLE D’UTILISATION ===========
+
+# =========== EXAMPLE USAGE ===========
 if __name__ == "__main__":
     texts = [
         "This is fantastic!",
@@ -291,13 +288,12 @@ if __name__ == "__main__":
     ]
     eco_ai = EcoAI(master_password="supersecur3password", business_name="EcoAI MoneyMaker")
     features = np.random.rand(len(texts), 10)
-    # features = eco_ai.get_embeddings(texts)  # Si sentence-transformers installé
+    # features = eco_ai.get_embeddings(texts)  # Uncomment if sentence-transformers installed
     predictions = eco_ai.batch_predict(texts, user_id="user_demo")
     reduced, clusters, score = eco_ai.reduce_and_cluster(features)
     print(f"\n📊 Clustering (Silhouette Score: {score:.2f}):")
     for text, pred, label in zip(texts, predictions, clusters):
         print(f"[Cluster {label}] \"{text}\" → {pred['label']} ({pred['score']:.2f})")
-    # Export business report
     report_path = eco_ai.export_results(texts, predictions, clusters, output_format="excel")
-    print(f"📁 Rapport Excel exporté : {report_path}")
+    print(f"📁 Excel report exported: {report_path}")
     eco_ai.summary()
