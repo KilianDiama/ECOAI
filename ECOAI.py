@@ -6,7 +6,7 @@ import logging
 import base64
 import numpy as np
 import pandas as pd
-from typing import List, Optional, Any, Tuple
+from typing import List, Any, Tuple
 from sentence_transformers import SentenceTransformer
 import matplotlib.pyplot as plt
 
@@ -27,6 +27,7 @@ from umap import UMAP
 # --- Logging config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("EcoAI")
+
 
 # --- Secure file manager
 class SecureFileManager:
@@ -83,7 +84,9 @@ class SecureFileManager:
             encrypted = f.read()
         from io import StringIO
         return pd.read_csv(StringIO(self.decrypt_data(encrypted).decode("utf-8")))
-# ----------- DATA VALIDATION -----------
+
+
+# --- Data validation
 class DataValidationService:
     @staticmethod
     def validate_type(data: Any, expected_type: type) -> bool:
@@ -95,7 +98,8 @@ class DataValidationService:
             return len(data) > 0
         return bool(data)
 
-# ----------- AUDIT / USER LOGGER -----------
+
+# --- User interaction logger
 class InteractionLogger:
     def __init__(self, storage_path="interactions", encrypted=True, password="changeme"):
         self.storage_path = storage_path
@@ -104,7 +108,7 @@ class InteractionLogger:
         os.makedirs(storage_path, exist_ok=True)
         self.secure_manager = SecureFileManager(password, base_dir=storage_path)
 
-    def _get_path(self, user_id: str):
+    def _get_path(self, user_id: str) -> str:
         return f"{user_id}_interactions.json"
 
     def log(self, user_id: str, message: str, result: Any):
@@ -129,19 +133,18 @@ class InteractionLogger:
             with open(os.path.join(self.storage_path, file), "w") as f:
                 json.dump(data, f, indent=4)
 
-# ---------- ECOAI CLASS ----------
 
-
+# --- Main EcoAI class
 class EcoAI:
     def __init__(self, model_name="distilbert-base-uncased", cache_dir="eco_cache",
                  task="sentiment-analysis", master_password=None, business_name="EcoAI_Business"):
         self.logger = logger
-        self.logger.info("Init EcoAI...")
+        self.logger.info("Initializing EcoAI...")
 
         self.task = task
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSequenceClassification.from_pretrained(model_name)
-        self.model = quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8).cpu()
+        base_model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        self.model = quantize_dynamic(base_model, {torch.nn.Linear}, dtype=torch.qint8).cpu()
         self.pipe = pipeline(task, model=self.model, tokenizer=self.tokenizer)
         self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -159,7 +162,7 @@ class EcoAI:
         self.interaction_logger = InteractionLogger(storage_path=os.path.join(cache_dir, "interactions"),
                                                     encrypted=True, password=self.master_password)
         self.business_name = business_name
-        self.logger.info(f"🌱 {business_name} ready to save energy and make money!")
+        self.logger.info(f"🌱 {business_name} is ready!")
 
     def _hash(self, text: str) -> str:
         return hashlib.sha256(text.strip().lower().encode()).hexdigest()
@@ -169,14 +172,14 @@ class EcoAI:
             try:
                 return self.file_manager.load_encrypted_json("predictions_cache_encrypted.json")
             except Exception as e:
-                self.logger.warning(f"Cache load error: {e}")
+                self.logger.warning(f"Cache load failed: {e}")
         return {}
 
     def _save_cache(self):
         try:
             self.file_manager.save_encrypted_json(self.cache, "predictions_cache_encrypted.json")
         except Exception as e:
-            self.logger.warning(f"Cache save error: {e}")
+            self.logger.warning(f"Cache save failed: {e}")
 
     def _select_model(self, text: str):
         if len(text.split()) < 6:
@@ -253,9 +256,9 @@ class EcoAI:
 
     def visualize_clusters(self, reduced_features: np.ndarray, labels: np.ndarray, texts: List[str]):
         plt.figure(figsize=(8, 6))
-        for i in range(len(reduced_features)):
-            plt.scatter(reduced_features[i, 0], reduced_features[i, 1], label=f"Cluster {labels[i]}")
-            plt.annotate(texts[i], (reduced_features[i, 0], reduced_features[i, 1]), fontsize=8)
+        for i, (x, y) in enumerate(reduced_features):
+            plt.scatter(x, y, label=f"Cluster {labels[i]}")
+            plt.annotate(texts[i], (x, y), fontsize=8)
         plt.title("Text Clusters")
         plt.xlabel("UMAP-1")
         plt.ylabel("UMAP-2")
@@ -270,29 +273,28 @@ class EcoAI:
             "Cluster": clusters,
         })
         out_name = f"EcoAI_report_{int(time.time())}"
+        file_path = os.path.join(self.cache_dir, f"{out_name}.{output_format}")
         if output_format == "excel":
-            out_path = os.path.join(self.cache_dir, f"{out_name}.xlsx")
-            df.to_excel(out_path, index=False)
+            df.to_excel(file_path, index=False)
         elif output_format == "csv":
-            out_path = os.path.join(self.cache_dir, f"{out_name}.csv")
-            df.to_csv(out_path, index=False)
+            df.to_csv(file_path, index=False)
         elif output_format == "json":
-            out_path = os.path.join(self.cache_dir, f"{out_name}.json")
-            df.to_json(out_path, orient="records")
+            df.to_json(file_path, orient="records")
         else:
             raise ValueError("Unsupported output format.")
-        self.logger.info(f"Results exported: {out_path}")
-        return out_path
+        self.logger.info(f"✅ Results exported to {file_path}")
+        return file_path
 
     def summary(self):
         total_time = sum(d for d, _ in self.energy_log)
         total_emissions = sum(e for _, e in self.energy_log)
-        print(f"\n⚡ Total prediction time : {total_time:.2f} seconds")
-        print(f"🌍 Total CO₂ emissions : {total_emissions:.6f} kg")
-        print(f"♻️ Cached unique predictions : {len(self.cache)}")
-        print(f"📚 Logs stored in : {self.interaction_logger.storage_path}")
+        print(f"\n⚡ Total prediction time: {total_time:.2f} seconds")
+        print(f"🌍 Total CO₂ emissions: {total_emissions:.6f} kg")
+        print(f"♻️ Cached unique predictions: {len(self.cache)}")
+        print(f"📚 Logs stored in: {self.interaction_logger.storage_path}")
 
-# =========== EXAMPLE USAGE ===========
+
+# --- EXAMPLE USAGE
 if __name__ == "__main__":
     texts = [
         "This is fantastic!",
@@ -302,7 +304,7 @@ if __name__ == "__main__":
         "This is fantastic!"
     ]
     eco_ai = EcoAI(master_password="supersecur3password", business_name="EcoAI MoneyMaker")
-    features = eco_ai.get_embeddings(texts)  
+    features = eco_ai.get_embeddings(texts)
     predictions = eco_ai.batch_predict(texts, user_id="user_demo")
     reduced, clusters, score = eco_ai.reduce_and_cluster(features)
     print(f"\n📊 Clustering (Silhouette Score: {score:.2f}):")
