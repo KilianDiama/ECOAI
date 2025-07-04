@@ -302,8 +302,7 @@ if __name__ == "__main__":
         "This is fantastic!"
     ]
     eco_ai = EcoAI(master_password="supersecur3password", business_name="EcoAI MoneyMaker")
-    features = np.random.rand(len(texts), 10)
-    # features = eco_ai.get_embeddings(texts)  # Uncomment if sentence-transformers installed
+    features = eco_ai.get_embeddings(texts)  
     predictions = eco_ai.batch_predict(texts, user_id="user_demo")
     reduced, clusters, score = eco_ai.reduce_and_cluster(features)
     print(f"\n📊 Clustering (Silhouette Score: {score:.2f}):")
