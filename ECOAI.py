@@ -7,6 +7,8 @@ import base64
 import numpy as np
 import pandas as pd
 from typing import List, Optional, Any, Tuple
+from sentence_transformers import SentenceTransformer
+import matplotlib.pyplot as plt
 
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -128,15 +130,11 @@ class InteractionLogger:
                 json.dump(data, f, indent=4)
 
 # ---------- ECOAI CLASS ----------
+
+
 class EcoAI:
-    def __init__(
-        self,
-        model_name="distilbert-base-uncased",
-        cache_dir="eco_cache",
-        task="sentiment-analysis",
-        master_password: Optional[str] = None,
-        business_name: Optional[str] = "EcoAI_Business"
-    ):
+    def __init__(self, model_name="distilbert-base-uncased", cache_dir="eco_cache",
+                 task="sentiment-analysis", master_password=None, business_name="EcoAI_Business"):
         self.logger = logger
         self.logger.info("Init EcoAI...")
 
@@ -145,16 +143,21 @@ class EcoAI:
         model = AutoModelForSequenceClassification.from_pretrained(model_name)
         self.model = quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8).cpu()
         self.pipe = pipeline(task, model=self.model, tokenizer=self.tokenizer)
+        self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
         self.cache_path = os.path.join(cache_dir, "predictions_cache_encrypted.json")
+
         self.master_password = master_password or os.getenv("MASTER_PASSWORD", "defaultpassword")
         self.file_manager = SecureFileManager(self.master_password, base_dir=cache_dir)
         self.cache = self._load_cache()
+
         self.tracker = EmissionsTracker(measure_power_secs=1, output_file=os.path.join(cache_dir, "emissions.csv"))
         self.energy_log = []
         self.validator = DataValidationService()
-        self.interaction_logger = InteractionLogger(storage_path=os.path.join(cache_dir, "interactions"), encrypted=True, password=self.master_password)
+        self.interaction_logger = InteractionLogger(storage_path=os.path.join(cache_dir, "interactions"),
+                                                    encrypted=True, password=self.master_password)
         self.business_name = business_name
         self.logger.info(f"🌱 {business_name} ready to save energy and make money!")
 
@@ -174,22 +177,20 @@ class EcoAI:
             self.file_manager.save_encrypted_json(self.cache, "predictions_cache_encrypted.json")
         except Exception as e:
             self.logger.warning(f"Cache save error: {e}")
+
     def _select_model(self, text: str):
-        """Choose lightweight model for short texts, main model otherwise."""
         if len(text.split()) < 6:
-            tiny_model_name = "distilbert-base-uncased-finetuned-sst-2-english"
-            tokenizer = AutoTokenizer.from_pretrained(tiny_model_name)
-            model = AutoModelForSequenceClassification.from_pretrained(tiny_model_name)
+            tiny_model = "distilbert-base-uncased-finetuned-sst-2-english"
+            tokenizer = AutoTokenizer.from_pretrained(tiny_model)
+            model = AutoModelForSequenceClassification.from_pretrained(tiny_model)
             return pipeline(self.task, model=model, tokenizer=tokenizer)
         return self.pipe
 
-    def predict(self, text: str, user_id: str = "public") -> dict:
+    def predict(self, text: str, user_id="public") -> dict:
         key = self._hash(text)
         if key in self.cache:
-            self.logger.debug("Cache hit.")
             result = self.cache[key]
         else:
-            self.logger.info(f"Running inference on: '{text}'")
             pipe = self._select_model(text)
             self.tracker.start()
             start = time.time()
@@ -204,10 +205,11 @@ class EcoAI:
         self.interaction_logger.log(user_id, text, result)
         return result
 
-    def batch_predict(self, texts: List[str], user_id: str = "public") -> List[dict]:
+    def batch_predict(self, texts: List[str], user_id="public") -> List[dict]:
         normalized = [t.strip().lower() for t in texts]
         keys = [self._hash(t) for t in normalized]
         results, to_predict, to_indices = [], [], []
+
         for i, key in enumerate(keys):
             if key in self.cache:
                 results.append(self.cache[key])
@@ -215,26 +217,29 @@ class EcoAI:
                 results.append(None)
                 to_predict.append(texts[i])
                 to_indices.append(i)
+
         if to_predict:
-            self.logger.info(f"Batch inference on {len(to_predict)} texts...")
             self.tracker.start()
             start = time.time()
-            preds = []
-            # Dynamic routing per text
-            for txt in to_predict:
+            for txt, idx in zip(to_predict, to_indices):
                 pipe = self._select_model(txt)
-                preds.append(pipe(txt)[0])
+                pred = pipe(txt)[0]
+                self.cache[keys[idx]] = pred
+                results[idx] = pred
             duration = time.time() - start
             emissions = self.tracker.stop()
-            for idx, pred in zip(to_indices, preds):
-                key = keys[idx]
-                self.cache[key] = pred
-                results[idx] = pred
-                self.energy_log.append((duration / len(to_predict), emissions / len(to_predict)))
+            per_item_time = duration / len(to_predict)
+            per_item_emissions = emissions / len(to_predict)
+            for _ in to_predict:
+                self.energy_log.append((per_item_time, per_item_emissions))
             self._save_cache()
+
         for t, r in zip(texts, results):
             self.interaction_logger.log(user_id, t, r)
         return results
+
+    def get_embeddings(self, texts: List[str]) -> np.ndarray:
+        return self.embedding_model.encode(texts)
 
     def reduce_and_cluster(self, features: np.ndarray, dim=2, n_clusters=3) -> Tuple[np.ndarray, np.ndarray, float]:
         if not self.validator.validate_type(features, np.ndarray) or not self.validator.validate_nonempty(features):
@@ -245,7 +250,18 @@ class EcoAI:
         labels = kmeans.fit_predict(reduced)
         score = silhouette_score(reduced, labels)
         return reduced, labels, score
-    # ----------------- REPORT / EXPORT -----------------
+
+    def visualize_clusters(self, reduced_features: np.ndarray, labels: np.ndarray, texts: List[str]):
+        plt.figure(figsize=(8, 6))
+        for i in range(len(reduced_features)):
+            plt.scatter(reduced_features[i, 0], reduced_features[i, 1], label=f"Cluster {labels[i]}")
+            plt.annotate(texts[i], (reduced_features[i, 0], reduced_features[i, 1]), fontsize=8)
+        plt.title("Text Clusters")
+        plt.xlabel("UMAP-1")
+        plt.ylabel("UMAP-2")
+        plt.grid(True)
+        plt.show()
+
     def export_results(self, texts: List[str], predictions: List[dict], clusters: np.ndarray, output_format="excel"):
         df = pd.DataFrame({
             "Text": texts,
@@ -275,7 +291,6 @@ class EcoAI:
         print(f"🌍 Total CO₂ emissions : {total_emissions:.6f} kg")
         print(f"♻️ Cached unique predictions : {len(self.cache)}")
         print(f"📚 Logs stored in : {self.interaction_logger.storage_path}")
-
 
 # =========== EXAMPLE USAGE ===========
 if __name__ == "__main__":
