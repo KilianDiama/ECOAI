@@ -1,21 +1,48 @@
-MIT License
+Fair Code License v1.0  
+Author: Matthieu Ouvrard   
+Wallet (optional, for support or commercial use): 0x07CeD065d11A15df605eAB2571cc67D2384f3Af2  
 
-Copyright (c) 2025 Ouvrard Matthieu
+1. Free & Open-Source Use  
+--------------------------
+You are free to use, copy, modify, improve, and redistribute this code without restriction, as long as your use remains **non-commercial or open-source**.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal  
-in the Software without restriction, including without limitation the rights  
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell  
-copies of the Software, and to permit persons to whom the Software is  
-furnished to do so, subject to the following conditions:
+You may:
+- Read, modify, and freely share the code
+- Create forks or derivative projects
+- Use the code in any organization or structure
+- Suggest improvements or publish alternative versions
 
-The above copyright notice and this permission notice shall be included in all  
-copies or substantial portions of the Software.
+2. Fair Commercial Use  
+-----------------------
+Any commercial use of this software requires a fair contribution to the original author.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR  
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE  
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER  
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,  
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE  
-SOFTWARE.
+Commercial use includes (but is not limited to):
+- Selling, renting, hosting, or bundling this software in a product or service
+- Using the software to generate direct or indirect financial benefit
+
+The author is entitled to a share of the generated value, following a decreasing fairness model:
+- If you use the code **as-is**, a **15%** share of related revenues is expected
+- If you **modify or improve** the code, the share decreases to **10%**
+- If your version is **significantly reworked** and functionally exceeds the original project, this share may go down to **5%** or even **0%**, depending on your honest evaluation of the original contribution
+
+If in doubt, please contact the author or make a voluntary contribution to the wallet above.
+
+3. Transparency & Attribution  
+------------------------------
+- The original author's name (Matthieu Ouvrard) must be mentioned in any redistribution or public interface
+- This license file must be included in all distributed versions of the code
+
+4. No Warranty  
+---------------
+This software is provided **"as is"**, without warranty of any kind. The author is not liable for any loss, damage, or issue caused by its use.
+
+5. Community Spirit  
+--------------------
+This license relies on good faith and fairness. It aims to encourage:
+- Transparency
+- Respect for contributors
+- Prioritizing code quality over personal interest
+
+6. License Changes  
+-------------------
+The author reserves the right to publish new versions of this license. Existing versions remain valid for projects already using them.
