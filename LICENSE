@@ -1,63 +1,90 @@
+# SPDX‐License‐Identifier: Fair-Code-1.0
 ──────────────────────────────────────────────────────────────────────────────
-                         FAIR CODE LICENSE v1.0 (EN)
+                     FAIR CODE LICENSE – Version 1.0 (English)
 ──────────────────────────────────────────────────────────────────────────────
-Author   : Matthieu Ouvrard  
-Year   : 2025  
-Contact : diamajax@gmail.com  
-Support / Commercial contribution (optional) – Ethereum wallet:  
-  0x07CeD065d11A15df605eAB2571cc67D2384f3Af2
+Author      : Matthieu Ouvrard  
+Contact     : diamajax@gmail.com  
+Year        : 2025  
+Support     : ETH wallet 0x07CeD065d11A15df605eAB2571cc67D2384f3Af2  
 ──────────────────────────────────────────────────────────────────────────────
 
-1  FREE & OPEN-SOURCE USE
-   ──────────────────────
-   You may **use, study, copy, modify, merge, publish and redistribute** the
-   Software for any **non-commercial** purpose or within any **open-source
-   project**, without limitation and without owing the author any fee.
+0 ▌ PREAMBLE & DEFINITIONS
+──────────────────────────
+“**Software**” means this source code, associated binaries, documentation  
+and all copies or substantial portions thereof.  
+“**Commercial Use**” means any use that delivers *direct or indirect*  
+financial benefit, including (but not limited to) SaaS hosting, resale,  
+renting, paid support, advertising, or bundling in a paid product/service.  
+“**Revenue**” means the gross income before taxes that is attributable to  
+Commercial Use of the Software.  
+“**You** / **Your**” means any individual or legal entity exercising rights  
+under this licence.  
 
-2  FAIR COMMERCIAL USE
-   ────────────────────
-   Any **commercial** exploitation of this Software requires a fair financial
-   contribution to the author.
+1 ▌ FREE & OPEN-SOURCE USE
+──────────────────────────
+For **non-commercial** purposes, or within an **OSI-approved open-source  
+project**, You may freely *use, study, copy, modify, merge, publish and  
+redistribute* the Software without owing any fee to the Author.
 
-   **Commercial use includes, but is not limited to:**
-   • Selling, licensing, renting, hosting or bundling the Software in a product  
-   • Using the Software to generate direct or indirect revenue or other
-     material advantage
+2 ▌ FAIR COMMERCIAL USE
+───────────────────────
+Commercial Use is permitted **only if** You fairly compensate the Author
+according to the schedule below **or** obtain a separate written agreement.
 
-   **Revenue-sharing schedule**  
-   ▸ Using the Software *as-is*       → **15 %** of related gross revenue  
-   ▸ Using a *modified / improved* version → **10 %**  
-   ▸ Using a *substantially re-worked* version  
-     whose functionality clearly exceeds the original → **5 %** or, if the
-     original contribution is truly marginal, **0 %** (honour system)
+▪ **Revenue-sharing schedule**  
+  • Use *as-is* ………………… 15 % of related Revenue  
+  • *Modified / improved* version ……… 10 %  
+  • *Substantially re-worked* version, whose functionality clearly exceeds  
+    the original ………………………………………… 5 % – or **0 %** if the original
+    contribution is truly marginal (honour system).
 
-   If in doubt, please contact the author or make a voluntary contribution to
-   the wallet above.
+▪ **Small-revenue exemption** If Your annual Revenue attributable to the
+   Software is **below 10 000 €**, no payment is required.
 
-3  TRANSPARENCY & ATTRIBUTION
-   ───────────────────────────
-   • The author’s name **“Matthieu Ouvrard”** must appear in any public user
-     interface, documentation or marketing material that mentions the Software.  
-   • A complete, unaltered copy of this licence **must** accompany all
-     redistributions.
+▪ **Fixed buy-out option** You may, in lieu of sharing Revenue, negotiate a
+   one-time licence fee with the Author.
 
-4  NO WARRANTY
-   ─────────────
-   The Software is provided **“AS IS”**, without warranty of any kind, express
-   or implied. The author shall not be liable for any loss, damage or other
-   liability arising from its use.
+▪ **Reporting & audit** Upon written request (no more than once per calendar
+   year) You shall provide reasonable documentation of Revenue connected to
+   the Software. The Author shall treat such information as confidential.
 
-5  COMMUNITY SPIRIT
-   ─────────────────
-   This licence relies on **good faith** and aims to foster:
-   • Transparency • Respect for contributors • Prioritising code quality over
-   personal gain.
+3 ▌ TRANSPARENCY & ATTRIBUTION
+──────────────────────────────
+• The Author’s name **“Matthieu Ouvrard”** must appear in any UI,
+  documentation, “About” box or marketing material referring to the Software.  
+• A complete, unaltered copy of this licence **must** accompany every
+  distribution of the Software or a derivative work.
 
-6  LICENCE UPDATES
-   ────────────────
-   The author may publish new versions of this licence. Versions already in
-   use remain valid for existing projects.
+4 ▌ NO WARRANTY
+───────────────
+THE SOFTWARE IS PROVIDED **“AS IS”** WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. THE AUTHOR SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGE OR OTHER
+LIABILITY ARISING FROM ITS USE.
+
+5 ▌ GOVERNING LAW & JURISDICTION
+────────────────────────────────
+This licence is governed by the laws of **France**. Any dispute shall be
+submitted to the exclusive jurisdiction of the courts of **Paris, France**.
+
+6 ▌ TERMINATION
+───────────────
+Any breach of Sections 2 or 3 immediately terminates the rights granted to
+You. Upon termination, You must cease all use of the Software or obtain a new
+written licence from the Author.
+
+7 ▌ COMMUNITY SPIRIT
+────────────────────
+This licence relies on **fairness and good faith**.  It encourages  
+• Transparency • Respect for contributors • A focus on code quality over
+personal gain.
+
+8 ▌ LICENCE UPDATES
+───────────────────
+The Author may publish new versions of this licence.  Existing projects may
+continue to use the version under which they were originally licensed, or may
+upgrade at their option.
 
 ──────────────────────────────────────────────────────────────────────────────
-Using this Software signifies acceptance of all terms above.
+Using, distributing or modifying this Software signifies **acceptance** of
+all the terms above.
 ──────────────────────────────────────────────────────────────────────────────
