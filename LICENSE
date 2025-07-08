@@ -1,48 +1,63 @@
-Fair Code License v1.0  
-Author: Matthieu Ouvrard   
-Wallet (optional, for support or commercial use): 0x07CeD065d11A15df605eAB2571cc67D2384f3Af2  
+──────────────────────────────────────────────────────────────────────────────
+                         FAIR CODE LICENSE v1.0 (EN)
+──────────────────────────────────────────────────────────────────────────────
+Author   : Matthieu Ouvrard  
+Year   : 2025  
+Contact : diamajax@gmail.com  
+Support / Commercial contribution (optional) – Ethereum wallet:  
+  0x07CeD065d11A15df605eAB2571cc67D2384f3Af2
+──────────────────────────────────────────────────────────────────────────────
 
-1. Free & Open-Source Use  
---------------------------
-You are free to use, copy, modify, improve, and redistribute this code without restriction, as long as your use remains **non-commercial or open-source**.
+1  FREE & OPEN-SOURCE USE
+   ──────────────────────
+   You may **use, study, copy, modify, merge, publish and redistribute** the
+   Software for any **non-commercial** purpose or within any **open-source
+   project**, without limitation and without owing the author any fee.
 
-You may:
-- Read, modify, and freely share the code
-- Create forks or derivative projects
-- Use the code in any organization or structure
-- Suggest improvements or publish alternative versions
+2  FAIR COMMERCIAL USE
+   ────────────────────
+   Any **commercial** exploitation of this Software requires a fair financial
+   contribution to the author.
 
-2. Fair Commercial Use  
------------------------
-Any commercial use of this software requires a fair contribution to the original author.
+   **Commercial use includes, but is not limited to:**
+   • Selling, licensing, renting, hosting or bundling the Software in a product  
+   • Using the Software to generate direct or indirect revenue or other
+     material advantage
 
-Commercial use includes (but is not limited to):
-- Selling, renting, hosting, or bundling this software in a product or service
-- Using the software to generate direct or indirect financial benefit
+   **Revenue-sharing schedule**  
+   ▸ Using the Software *as-is*       → **15 %** of related gross revenue  
+   ▸ Using a *modified / improved* version → **10 %**  
+   ▸ Using a *substantially re-worked* version  
+     whose functionality clearly exceeds the original → **5 %** or, if the
+     original contribution is truly marginal, **0 %** (honour system)
 
-The author is entitled to a share of the generated value, following a decreasing fairness model:
-- If you use the code **as-is**, a **15%** share of related revenues is expected
-- If you **modify or improve** the code, the share decreases to **10%**
-- If your version is **significantly reworked** and functionally exceeds the original project, this share may go down to **5%** or even **0%**, depending on your honest evaluation of the original contribution
+   If in doubt, please contact the author or make a voluntary contribution to
+   the wallet above.
 
-If in doubt, please contact the author or make a voluntary contribution to the wallet above.
+3  TRANSPARENCY & ATTRIBUTION
+   ───────────────────────────
+   • The author’s name **“Matthieu Ouvrard”** must appear in any public user
+     interface, documentation or marketing material that mentions the Software.  
+   • A complete, unaltered copy of this licence **must** accompany all
+     redistributions.
 
-3. Transparency & Attribution  
-------------------------------
-- The original author's name (Matthieu Ouvrard) must be mentioned in any redistribution or public interface
-- This license file must be included in all distributed versions of the code
+4  NO WARRANTY
+   ─────────────
+   The Software is provided **“AS IS”**, without warranty of any kind, express
+   or implied. The author shall not be liable for any loss, damage or other
+   liability arising from its use.
 
-4. No Warranty  
----------------
-This software is provided **"as is"**, without warranty of any kind. The author is not liable for any loss, damage, or issue caused by its use.
+5  COMMUNITY SPIRIT
+   ─────────────────
+   This licence relies on **good faith** and aims to foster:
+   • Transparency • Respect for contributors • Prioritising code quality over
+   personal gain.
 
-5. Community Spirit  
---------------------
-This license relies on good faith and fairness. It aims to encourage:
-- Transparency
-- Respect for contributors
-- Prioritizing code quality over personal interest
+6  LICENCE UPDATES
+   ────────────────
+   The author may publish new versions of this licence. Versions already in
+   use remain valid for existing projects.
 
-6. License Changes  
--------------------
-The author reserves the right to publish new versions of this license. Existing versions remain valid for projects already using them.
+──────────────────────────────────────────────────────────────────────────────
+Using this Software signifies acceptance of all terms above.
+──────────────────────────────────────────────────────────────────────────────
