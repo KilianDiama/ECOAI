@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-EcoAI — Green, Secure & Business-ready NLP toolkit
-Version : 3.1.1  (2025-07-08)
-
-Nouveautés v3.1.1 :
-    • ➕ Exception APIError définie et gérée
-    • 🐞 Correction du logger global
-    • 📦 Ajout de pyproject.toml pour packaging
-    • 🧪 Tests PyTest étendus
+EcoAI 
 """
 from __future__ import annotations
 
