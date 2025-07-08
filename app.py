@@ -3,16 +3,6 @@
 """
 EcoAI – Sentiment analysis économe en carbone + cache chiffré
 
-Version 4.0.0  (2025-07-08)
-
-Principales nouveautés :
-• Typage exhaustif + compatibilité mypy
-• Gestion d’erreurs spécifique (plus de `except Exception`)
-• Nettoyage des import facultatifs et “shims” propres
-• Tracker CodeCarbon “safe” (aucune AttributeError)
-• Validation d’entrée via Pydantic (si dispo)
-• Journalisation enrichie & option --verbose pour le CLI
-• Factorisation de la quantisation (évite double chargement)
 """
 
 from __future__ import annotations
