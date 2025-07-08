@@ -74,8 +74,7 @@ Audit logs per user	,
 Clustering integration	.
 
 ## 🔒 License
-This project is released under the MIT License.
-For commercial licensing, extended support, or a private "Pro" version, please contact the author.
+This project is released under License.
 
 ## 💬 Get Involved
 ⭐ Star this project to support green AI
