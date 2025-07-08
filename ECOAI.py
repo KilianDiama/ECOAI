@@ -1,8 +1,15 @@
-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-EcoAI 
-"""
+EcoAI — Green, Secure & Business-ready NLP toolkit
+Version : 3.1.1  (2025-07-08)
 
+Nouveautés v3.1.1 :
+    • ➕ Exception APIError définie et gérée
+    • 🐞 Correction du logger global
+    • 📦 Ajout de pyproject.toml pour packaging
+    • 🧪 Tests PyTest étendus
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,44 +21,69 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import torch
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from umap import UMAP
-from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
-                          pipeline)
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 from torch.quantization import quantize_dynamic
-import torch
+
+# Optional dependencies
+try:
+    from fastapi import FastAPI, HTTPException
+    from pydantic import BaseModel
+except ImportError:
+    FastAPI = None  # type: ignore
+    BaseModel = object  # type: ignore
+    logging.warning("FastAPI or Pydantic not installed: REST API disabled.", stacklevel=2)
 
 try:
     import portalocker  # type: ignore
-except ImportError:  # graceful fallback
+except ImportError:
     portalocker = None
+    logging.info("portalocker not installed: falling back to POSIX/msvcrt locks.", stacklevel=2)
 
 try:
-    import msvcrt  # type: ignore  # noqa: E402  (only on Windows)
-except ImportError:  # non-Windows
-    msvcrt = None  # type: ignore
+    import codecarbon
+except ImportError:
+    codecarbon = None
+    logging.warning("codecarbon not installed: CO2 tracking disabled.", stacklevel=2)
 
+__all__ = ["EcoAI", "EcoAIConfig", "__version__", "CryptoError", "CacheError", "APIError"]
+__version__ = "3.1.1"
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
+# Exceptions dédiées
+# ───────────────────────────────────────────────────────────────────────────
+class CryptoError(Exception):
+    """Erreur lors du chiffrement/déchiffrement."""
+
+class CacheError(Exception):
+    """Erreur I/O cache ou corruption."""
+
+class APIError(Exception):
+    """Erreur générique pour l’API REST."""
+
+# ───────────────────────────────────────────────────────────────────────────
 # Configuration dataclass
-# ──────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
 @dataclass(slots=True, frozen=True)
 class EcoAIConfig:
-    cache_version: int = 1
-    cache_file: str = "predictions_cache_v1.enc"
+    # Cache & modèles
+    cache_version: int = 3
+    cache_file: str = "predictions_cache_v3.enc"
     model_file: str = "sentiment_q8.pt"
     default_model_name: str = "distilbert-base-uncased"
     tiny_model_name: str = "distilbert-base-uncased-finetuned-sst-2-english"
@@ -59,46 +91,47 @@ class EcoAIConfig:
     default_cache_dir: str = "eco_cache"
     default_task: str = "sentiment-analysis"
 
-    # emojis centralisés (logging uniformisé)
-    EMOJI_INIT = "⚙️"
-    EMOJI_READY = "🌱"
-    EMOJI_CACHE = "♻️"
-    EMOJI_ENERGY = "⚡"
-    EMOJI_CO2 = "🌍"
-    EMOJI_EXPORT = "📄"
+    # KDF Argon2
+    kdf_time_cost: int = 1          # passes
+    kdf_memory_cost: int = 64 * 1024  # kibibytes
+    kdf_parallelism: int = 2
+    kdf_length: int = 32
 
+    # i18n
+    locale: str = "en_US"
+
+    # Emojis (logging)
+    EMOJI_INIT: str = "⚙️"
+    EMOJI_READY: str = "🌱"
+    EMOJI_CACHE: str = "♻️"
+    EMOJI_ENERGY: str = "⚡"
+    EMOJI_CO2: str = "🌍"
+    EMOJI_EXPORT: str = "📄"
 
 CFG = EcoAIConfig()
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
 # Logging
-# ──────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
 )
 log = logging.getLogger("ecoai")
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Fichier lock cross-platform
-# ──────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
+# Verrouillage de fichier cross-plat
+# ───────────────────────────────────────────────────────────────────────────
 @contextlib.contextmanager
 def file_lock(path: Path, timeout: int = 10):
-    """
-    Context manager de verrou fichier.
-    • portalocker si installé
-    • Windows : msvcrt.locking
-    • POSIX fallback : fichier .lock avec os.open + EEXIST
-    """
     lock_path = Path(f"{path}.lock")
-
     if portalocker:
-        with portalocker.Lock(lock_path, timeout=timeout):
+        with portalocker.Lock(str(lock_path), timeout=timeout):
             yield
         return
-
-    if msvcrt:  # Windows sans portalocker
+    # Windows fallback
+    try:
+        import msvcrt  # type: ignore
         fp = open(lock_path, "a+b")
         start = time.monotonic()
         while True:
@@ -107,7 +140,8 @@ def file_lock(path: Path, timeout: int = 10):
                 break
             except OSError:
                 if time.monotonic() - start > timeout:
-                    raise TimeoutError(f"Lock timeout on {path}") from None
+                    fp.close()
+                    raise TimeoutError(f"Timeout lock on {path}")
                 time.sleep(0.1)
         try:
             yield
@@ -116,8 +150,9 @@ def file_lock(path: Path, timeout: int = 10):
             fp.close()
             lock_path.unlink(missing_ok=True)
         return
-
-    # POSIX simple (non-atomique, mais dernier recours)
+    except ImportError:
+        pass
+    # POSIX fallback
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
     try:
         yield
@@ -126,382 +161,383 @@ def file_lock(path: Path, timeout: int = 10):
         with contextlib.suppress(FileNotFoundError):
             lock_path.unlink()
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# SecureFileManager
-# ──────────────────────────────────────────────────────────────────────────────
-class SecureFileManager:
-    """Lecture/écriture JSON & CSV chiffrés AES-GCM 256 bits (header versionné)."""
-
+# ───────────────────────────────────────────────────────────────────────────
+# Crypto helpers
+# ───────────────────────────────────────────────────────────────────────────
+class _Crypto:
+    """AES-GCM-256 + HMAC-SHA256 via Argon2id KDF."""
     HEADER_VERSION = bytes([CFG.cache_version])
 
-    def __init__(self, master_password: str, base_dir: str | Path):
-        self._pwd = master_password.encode()
-        self.base_dir = Path(base_dir)
+    @classmethod
+    def _make_kdf(cls, salt: bytes) -> Argon2id:
+        return Argon2id(
+            time_cost=CFG.kdf_time_cost,
+            memory_cost=CFG.kdf_memory_cost,
+            parallelism=CFG.kdf_parallelism,
+            length=CFG.kdf_length,
+            salt=salt,
+        )
+
+    @classmethod
+    def _derive_key(cls, pwd: bytes, salt: bytes) -> bytes:
+        try:
+            return cls._make_kdf(salt).derive(pwd)
+        except Exception as e:
+            raise CryptoError(f"KDF failed: {e}") from e
+
+    @staticmethod
+    def _sign(payload: bytes, key: bytes) -> bytes:
+        h = hmac.HMAC(key, hashes.SHA256(), backend=default_backend())
+        h.update(payload)
+        return h.finalize()
+
+    @classmethod
+    def encrypt(cls, data: bytes, password: str) -> str:
+        salt = os.urandom(16)
+        iv = os.urandom(12)
+        key = cls._derive_key(password.encode(), salt)
+        cipher = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend())
+        encryptor = cipher.encryptor()
+        ct = encryptor.update(data) + encryptor.finalize()
+        payload = cls.HEADER_VERSION + salt + iv + encryptor.tag + ct
+        mac = cls._sign(payload, key)
+        return base64.b64encode(mac + payload).decode()
+
+    @classmethod
+    def decrypt(cls, token: str, password: str) -> bytes:
+        try:
+            blob = base64.b64decode(token)
+            mac, payload = blob[:32], blob[32:]
+            ver, salt, iv, tag, ct = (
+                payload[:1],
+                payload[1:17],
+                payload[17:29],
+                payload[29:45],
+                payload[45:],
+            )
+            if ver != cls.HEADER_VERSION:
+                raise CryptoError("Unsupported cipher version")
+            key = cls._derive_key(password.encode(), salt)
+            if not hmac.compare_digest(mac, cls._sign(payload, key)):
+                raise CryptoError("Integrity check failed")
+            cipher = Cipher(algorithms.AES(key), modes.GCM(iv, tag), backend=default_backend())
+            return cipher.decryptor().update(ct) + cipher.decryptor().finalize()
+        except InvalidTag as e:
+            raise CryptoError("Invalid password or corrupted data") from e
+        except Exception as e:
+            raise CryptoError(f"Decrypt failed: {e}") from e
+
+# ───────────────────────────────────────────────────────────────────────────
+# Gestionnaire de fichiers sécurisé
+# ───────────────────────────────────────────────────────────────────────────
+class SecureFileManager:
+    """Store JSON/CSV chiffrés avec rotation de clé."""
+    def __init__(self, master_password: str, base_dir: Path):
+        if not master_password or master_password == "change-me!":
+            raise ValueError("Password empty or default is forbidden.")
+        self._pwd = master_password
+        self.base_dir = base_dir
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---------- crypto primitives
-    def _generate_salt(self) -> bytes:
-        return os.urandom(16)
+    def _path(self, name: str) -> Path:
+        return self.base_dir / name
 
-    def _derive_key(self, salt: bytes) -> bytes:
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=100_000,
-            backend=default_backend(),
-        )
-        return kdf.derive(self._pwd)
+    def rotate_password(self, new_pwd: str) -> None:
+        for enc in self.base_dir.glob("*.enc"):
+            data = _Crypto.decrypt(enc.read_text(), self._pwd)
+            enc.write_text(_Crypto.encrypt(data, new_pwd))
+        self._pwd = new_pwd
 
-    # ---------- public API
-    def encrypt_data(self, data: bytes) -> str:
-        salt = self._generate_salt()
-        key = self._derive_key(salt)
-        iv = os.urandom(12)
-
-        cipher = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend())
-        encryptor = cipher.encryptor()                     # ⇦ un seul encryptor
-        ct = encryptor.update(data) + encryptor.finalize()
-        tag = encryptor.tag
-
-        payload = self.HEADER_VERSION + salt + iv + tag + ct
-        return base64.b64encode(payload).decode()
-
-    def decrypt_data(self, b64: str) -> bytes:
-        raw = base64.b64decode(b64)
-        ver, salt, iv, tag, ct = raw[:1], raw[1:17], raw[17:29], raw[29:45], raw[45:]
-
-        if ver != self.HEADER_VERSION:
-            raise ValueError("Unsupported cipher version")
-
-        key = self._derive_key(salt)
-        cipher = Cipher(algorithms.AES(key), modes.GCM(iv, tag), backend=default_backend())
-        decryptor = cipher.decryptor()
+    def save_json(self, obj: Any, name: str) -> None:
+        token = _Crypto.encrypt(json.dumps(obj, ensure_ascii=False).encode(), self._pwd)
+        p = self._path(name)
         try:
-            return decryptor.update(ct) + decryptor.finalize()
-        except InvalidTag as exc:
-            raise ValueError("Invalid password or corrupted data") from exc
+            with file_lock(p):
+                p.write_text(token)
+        except Exception as e:
+            raise CacheError(f"Failed to write cache {name}: {e}")
 
-    # ---------- helpers
-    def _f(self, fn: str | Path) -> Path:
-        return self.base_dir / fn
+    def load_json(self, name: str) -> Any:
+        p = self._path(name)
+        try:
+            with file_lock(p):
+                return json.loads(_Crypto.decrypt(p.read_text(), self._pwd).decode())
+        except Exception as e:
+            raise CacheError(f"Failed to load cache {name}: {e}")
 
-    def _write(self, text: str, fn: str | Path) -> None:
-        with open(self._f(fn), "w", encoding="utf-8") as fp:
-            fp.write(text)
+    def save_csv(self, df: pd.DataFrame, name: str) -> None:
+        token = _Crypto.encrypt(df.to_csv(index=False).encode(), self._pwd)
+        p = self._path(name)
+        try:
+            with file_lock(p):
+                p.write_text(token)
+        except Exception as e:
+            raise CacheError(f"Failed to write CSV cache {name}: {e}")
 
-    def _read(self, fn: str | Path) -> str:
-        with open(self._f(fn), "r", encoding="utf-8") as fp:
-            return fp.read()
-
-    # ---------- JSON/CSV helpers
-    def save_encrypted_json(self, data: Any, file_name: str | Path) -> None:
-        txt = self.encrypt_data(json.dumps(data, ensure_ascii=False).encode())
-        with file_lock(self._f(file_name)):
-            self._write(txt, file_name)
-
-    def load_encrypted_json(self, file_name: str | Path) -> Any:
-        with file_lock(self._f(file_name)):
-            payload = self._read(file_name)
-        return json.loads(self.decrypt_data(payload).decode())
-
-    def save_encrypted_csv(self, df: pd.DataFrame, file_name: str | Path) -> None:
-        txt = self.encrypt_data(df.to_csv(index=False).encode())
-        with file_lock(self._f(file_name)):
-            self._write(txt, file_name)
-
-    def load_encrypted_csv(self, file_name: str | Path) -> pd.DataFrame:
+    def load_csv(self, name: str) -> pd.DataFrame:
         from io import StringIO
+        p = self._path(name)
+        try:
+            with file_lock(p):
+                data = _Crypto.decrypt(p.read_text(), self._pwd).decode()
+            return pd.read_csv(StringIO(data))
+        except Exception as e:
+            raise CacheError(f"Failed to load CSV cache {name}: {e}")
 
-        with file_lock(self._f(file_name)):
-            payload = self._read(file_name)
-        return pd.read_csv(StringIO(self.decrypt_data(payload).decode()))
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Validation
-# ──────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
+# Service de validation
+# ───────────────────────────────────────────────────────────────────────────
 class DataValidationService:
-    """Validations simples (type + non-vide)."""
-
     @staticmethod
     def validate_type(data: Any, expected: type) -> bool:
         return isinstance(data, expected)
 
     @staticmethod
     def validate_nonempty(data: Any) -> bool:
-        if isinstance(data, np.ndarray):
-            return data.size > 0
-        if isinstance(data, (pd.DataFrame, list, dict, str)):
+        if isinstance(data, (np.ndarray, pd.DataFrame, list, dict, str)):
             return len(data) > 0
         return bool(data)
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# InteractionLogger
-# ──────────────────────────────────────────────────────────────────────────────
-class InteractionLogger:
-    """Historique par utilisateur (optionnellement chiffré)."""
-
-    def __init__(self, storage: Path, password: str, encrypted: bool = True):
-        self.storage = storage
-        self.encrypted = encrypted
-        self.secure = SecureFileManager(password, storage)
-        self.storage.mkdir(parents=True, exist_ok=True)
-
-    def _file(self, uid: str) -> str:
-        return f"{uid}_interactions.json"
-
-    def log(self, uid: str, message: str, result: Dict[str, Any]) -> None:
-        entry = {
-            "user_id": uid,
-            "message": message,
-            "result": result,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        name = self._file(uid)
-        try:
-            if self.encrypted and self.secure._f(name).exists():
-                data = self.secure.load_encrypted_json(name)
-            else:
-                data = []
-        except Exception as exc:
-            log.warning("Logger read error → reset: %s", exc)
-            data = []
-
-        data.append(entry)
-        if self.encrypted:
-            self.secure.save_encrypted_json(data, name)
-        else:
-            self.secure._f(name).write_text(json.dumps(data, indent=2, ensure_ascii=False))
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# EcoAI core
-# ──────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
+# Core EcoAI
+# ───────────────────────────────────────────────────────────────────────────
+@dataclass
 class EcoAI:
-    """Pipeline Sentiment → Cache → Embeddings → Clustering → Export."""
+    master_password: str
+    model_name: str = CFG.default_model_name
+    cache_dir: Path = Path(CFG.default_cache_dir)
+    task: str = CFG.default_task
+    quant_dtype: str = "int8"
+    lite: bool = False
+    use_gpu: bool = False
+    disable_carbon: Optional[bool] = None
+    business_name: str = "EcoAI"
 
-    def __init__(
-        self,
-        *,
-        model_name: str = CFG.default_model_name,
-        cache_dir: str | Path = CFG.default_cache_dir,
-        task: str = CFG.default_task,
-        master_password: str | None = None,
-        business_name: str = "EcoAI",
-    ):
-        self.task = task
-        self.cache_dir = Path(cache_dir)
+    _pipeline: Any = field(init=False, repr=False)
+    _tokenizer: Any = field(init=False, repr=False)
+    _model: Any = field(init=False, repr=False)
+    _embedder: SentenceTransformer = field(init=False, repr=False)
+    _cache: Dict[str, Any] = field(init=False, repr=False)
+    _fm: SecureFileManager = field(init=False, repr=False)
+    _tracker: Any = field(init=False, repr=False)
+    _energy_log: List[Tuple[float, float]] = field(default_factory=list, init=False)
+
+    def __post_init__(self):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._fm = SecureFileManager(self.master_password, self.cache_dir)
+        self._logger = log.getChild(self.business_name.lower())
+        self._logger.info("%s Initializing %s...", CFG.EMOJI_INIT, self.business_name)
 
-        self.master_password = master_password or os.getenv("ECOAI_PASSWORD", "change-me!")
-        self.fm = SecureFileManager(self.master_password, self.cache_dir)
+        if self.lite:
+            self.model_name = CFG.tiny_model_name
 
-        # ── logging
-        self.logger = logging.getLogger(f"ecoai.{business_name}")
-        self.logger.info("%s  Initialisation %s…", CFG.EMOJI_INIT, business_name)
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self._model = self._load_or_quantize(self.model_name, self.quant_dtype)
+        device = 0 if (self.use_gpu and torch.cuda.is_available()) else -1
+        self._pipeline = pipeline(self.task, model=self._model, tokenizer=self._tokenizer, device=device)
 
-        # ── model & pipeline
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = self._load_or_quantize(model_name)
-        self.pipe = pipeline(task, model=self.model, tokenizer=self.tokenizer, device=-1)
+        self._embedder = SentenceTransformer("all-MiniLM-L6-v2", show_progress_bar=False)
+        self._cache_path = self.cache_dir / CFG.cache_file
+        self._cache = self._load_cache()
 
-        self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.disable_carbon = not bool(codecarbon) if self.disable_carbon is None else self.disable_carbon
+        if self.disable_carbon:
+            self._tracker = contextlib.nullcontext()
+        else:
+            from codecarbon import EmissionsTracker
+            self._tracker = EmissionsTracker(
+                measure_power_secs=1,
+                output_file=str(self.cache_dir / CFG.emissions_csv),
+            )
 
-        # ── cache
-        self.cache_path = self.cache_dir / CFG.cache_file
-        self.cache: Dict[str, Dict[str, Any]] = self._load_cache()
+        self._validator = DataValidationService()
+        self._logger.info("%s %s ready!", CFG.EMOJI_READY, self.business_name)
 
-        # ── misc
-        self.validator = DataValidationService()
-        from codecarbon import EmissionsTracker  # local import (= optional dep)
+    def _load_or_quantize(self, model_name: str, dtype: str):
+        model_path = self.cache_dir / CFG.model_file
+        if model_path.exists():
+            try:
+                self._logger.info("%s Loading quantized model...", CFG.EMOJI_CACHE)
+                return torch.load(model_path, map_location="cpu")
+            except Exception:
+                self._logger.warning("Cache invalid: re-quantizing", stacklevel=2)
+        self._logger.info("%s Quantizing model...", CFG.EMOJI_ENERGY)
+        base = AutoModelForSequenceClassification.from_pretrained(model_name)
+        if dtype.lower() in {"int8", "qint8"}:
+            q = quantize_dynamic(base, {torch.nn.Linear}, dtype=torch.qint8).cpu()
+        elif dtype.lower() in {"fp16", "float16"}:
+            q = base.half().cpu()
+        else:
+            q = base.cpu()
+        torch.save(q, model_path)
+        return q
 
-        self.tracker = EmissionsTracker(
-            measure_power_secs=1,
-            output_file=str(self.cache_dir / CFG.emissions_csv),
-        )
-        self.energy_log: list[tuple[float, float]] = []
+    def _load_cache(self) -> Dict[str, Any]:
+        if not self._cache_path.exists():
+            return {}
+        try:
+            return self._fm.load_json(self._cache_path.name)
+        except CacheError as e:
+            bak = self._cache_path.with_suffix(".bak.enc")
+            self._cache_path.rename(bak)
+            self._logger.warning("Cache corrupt → %s: %s", bak, e, stacklevel=2)
+            return {}
 
-        self.interactions = InteractionLogger(
-            storage=self.cache_dir / "interactions", password=self.master_password
-        )
+    def _save_cache(self):
+        try:
+            self._fm.save_json(self._cache, self._cache_path.name)
+        except CacheError as e:
+            self._logger.error("Cannot save cache: %s", e, stacklevel=2)
 
-        self.logger.info("%s  %s prêt !", CFG.EMOJI_READY, business_name)
-
-    # ─────────────────────────────────────────────────────────── internal utils
     @staticmethod
     def _hash(text: str) -> str:
         return hashlib.sha256(text.strip().lower().encode()).hexdigest()
 
-    def _load_or_quantize(self, model_name: str):
-        model_path = self.cache_dir / CFG.model_file
-        if model_path.exists():
-            try:
-                self.logger.info("%s  Chargement modèle quantifié …", CFG.EMOJI_CACHE)
-                return torch.load(model_path, map_location="cpu")
-            except Exception as exc:  # noqa: BLE001
-                self.logger.warning("Échec cache modèle : %s → requantification", exc)
-
-        self.logger.info("%s  Quantization dynamique…", CFG.EMOJI_ENERGY)
-        base = AutoModelForSequenceClassification.from_pretrained(model_name)
-        q_model = quantize_dynamic(base, {torch.nn.Linear}, dtype=torch.qint8).cpu()
-        torch.save(q_model, model_path)
-        return q_model
-
-    # cache
-    def _load_cache(self) -> Dict[str, Dict[str, Any]]:
-        if self.cache_path.exists():
-            try:
-                return self.fm.load_encrypted_json(self.cache_path.name)  # type: ignore[arg-type]
-            except Exception as exc:
-                self.logger.warning("Cache corrompu ou mauvais mot de passe : %s", exc)
-        return {}
-
-    def _save_cache(self) -> None:
-        try:
-            self.fm.save_encrypted_json(self.cache, self.cache_path.name)
-        except Exception as exc:
-            self.logger.error("Impossible de sauvegarder le cache : %s", exc)
-
-    # micro-optim pipeline
-    def _select_pipeline(self, text: str):
-        if len(text.split()) < 6:
-            tiny = CFG.tiny_model_name
-            return pipeline(
-                self.task,
-                model=AutoModelForSequenceClassification.from_pretrained(tiny),
-                tokenizer=AutoTokenizer.from_pretrained(tiny),
-                device=-1,
-            )
-        return self.pipe
-
-    # ───────────────────────────────────────────────────────────── public API
-    def predict(self, text: str, *, user_id: str = "public") -> Dict[str, Any]:
-        h = self._hash(text)
-
-        if h not in self.cache:
-            pipe = self._select_pipeline(text)
-            self.tracker.start()
-            tic = time.perf_counter()
-
-            try:
-                self.cache[h] = pipe(text)[0]  # type: ignore[index]
-            finally:
-                dur = time.perf_counter() - tic
-                co2 = self.tracker.stop()
-                self.energy_log.append((dur, co2))
+    def predict(self, text: str) -> Dict[str, Any]:
+        key = self._hash(text)
+        if key not in self._cache:
+            with self._tracker:
+                t0 = time.perf_counter()
+                out = self._pipeline(text)[0]
+                dt = time.perf_counter() - t0
+                co2 = getattr(self._tracker, "final_emissions", 0.0)
+                self._energy_log.append((dt, co2))
+                self._cache[key] = out
                 self._save_cache()
+        return self._cache[key]
 
-        self.interactions.log(user_id, text, self.cache[h])
-        return self.cache[h]
-
-    def batch_predict(self, texts: List[str], *, user_id: str = "public") -> List[Dict[str, Any]]:
-        hashes = [self._hash(t) for t in texts]
-        to_run = [t for t, h in zip(texts, hashes) if h not in self.cache]
-
+    def batch_predict(self, texts: Iterable[str]) -> List[Dict[str, Any]]:
+        texts = list(texts)
+        keys = [self._hash(t) for t in texts]
+        to_run = [t for t, k in zip(texts, keys) if k not in self._cache]
         if to_run:
-            self.tracker.start()
-            tic = time.perf_counter()
-            preds = self.pipe(to_run)
-            for t, pred in zip(to_run, preds):
-                self.cache[self._hash(t)] = pred
-
-            per = len(to_run)
-            dur = time.perf_counter() - tic
-            co2 = self.tracker.stop()
-            self.energy_log.extend([(dur / per, co2 / per)] * per)
+            with self._tracker:
+                t0 = time.perf_counter()
+                preds = self._pipeline(to_run)
+                dt = time.perf_counter() - t0
+                co2 = getattr(self._tracker, "final_emissions", 0.0)
+            for t, p in zip(to_run, preds):
+                k = self._hash(t)
+                self._cache[k] = p
+                self._energy_log.append((dt / len(to_run), co2 / len(to_run)))
             self._save_cache()
+        return [self._cache[k] for k in keys]
 
-        for t, h in zip(texts, hashes):
-            self.interactions.log(user_id, t, self.cache[h])
+    def get_embeddings(self, texts: Iterable[str]) -> np.ndarray:
+        return self._embedder.encode(list(texts), convert_to_numpy=True)
 
-        return [self.cache[h] for h in hashes]
+    def auto_cluster(
+        self, texts: Iterable[str], k_range: range = range(2, 10),
+        dim: int = 2, max_samples: int = 5000
+    ) -> Tuple[np.ndarray, List[int], int, float]:
+        lst = list(texts)
+        if len(lst) > max_samples:
+            sampled = np.random.choice(len(lst), max_samples, replace=False)
+            base_texts = [lst[i] for i in sampled]
+        else:
+            base_texts = lst
+        embs = self.get_embeddings(base_texts)
+        red = UMAP(n_components=dim, random_state=42).fit_transform(embs)
+        best = {"k": 0, "score": -1.0, "labels": []}
+        for k in k_range:
+            km = KMeans(n_clusters=k, random_state=42, n_init="auto").fit(red)
+            sc = silhouette_score(red, km.labels_)
+            if sc > best["score"]:
+                best.update(k=k, score=sc, labels=km.labels_.tolist())
+        if len(lst) > max_samples:
+            lab_pred = KMeans(n_clusters=best["k"], random_state=42, n_init="auto").fit(red)
+            all_embs = self.get_embeddings(lst)
+            red_all = UMAP(n_components=dim, random_state=42).fit_transform(all_embs)
+            labels_full = lab_pred.predict(red_all).tolist()
+        else:
+            labels_full = best["labels"]
+        return red, labels_full, best["k"], best["score"]
 
-    # embeddings & clustering
-    def get_embeddings(self, texts: List[str]) -> np.ndarray:
-        return self.embedding_model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-
-    def reduce_and_cluster(
-        self, feats: np.ndarray, *, dim: int = 2, n_clusters: int = 3
-    ) -> Tuple[np.ndarray, np.ndarray, float]:
-        if not (
-            self.validator.validate_type(feats, np.ndarray)
-            and self.validator.validate_nonempty(feats)
-        ):
-            raise ValueError("Invalid features for clustering")
-
-        reducer = UMAP(n_components=dim, random_state=42)
-        red = reducer.fit_transform(feats)
-
-        km = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
-        labels = km.fit_predict(red)
-        score = silhouette_score(red, labels)
-        return red, labels, score
-
-    # export
     def export_results(
-        self,
-        texts: List[str],
-        preds: List[Dict[str, Any]],
-        clusters: np.ndarray,
-        *,
-        fmt: str = "excel",
+        self, texts: List[str], preds: List[Dict[str, Any]],
+        clusters: List[int], fmt: str = "excel"
     ) -> Tuple[Path, pd.DataFrame]:
-        df = pd.DataFrame(
-            {
-                "Text": texts,
-                "Prediction": [p["label"] for p in preds],
-                "Score": [float(p["score"]) for p in preds],
-                "Cluster": clusters,
-            }
-        )
-
-        ext = {"excel": "xlsx", "csv": "csv", "json": "json"}[fmt]
-        out = self.cache_dir / f"EcoAI_report_{int(time.time())}.{ext}"
-
+        df = pd.DataFrame({
+            "Text": texts,
+            "Prediction": [p["label"] for p in preds],
+            "Score": [float(p["score"]) for p in preds],
+            "Cluster": clusters,
+        })
+        exts = {"excel": "xlsx", "csv": "csv", "json": "json"}
+        if fmt not in exts:
+            raise ValueError(f"Format non supporté: {fmt}")
+        out = self.cache_dir / f"EcoAI_report_{int(time.time())}.{exts[fmt]}"
         if fmt == "excel":
             df.to_excel(out, index=False)
         elif fmt == "csv":
             df.to_csv(out, index=False)
-        elif fmt == "json":
-            df.to_json(out, orient="records", force_ascii=False)
         else:
-            raise ValueError("Unsupported export format")
-
-        self.logger.info("%s  Export terminé → %s", CFG.EMOJI_EXPORT, out)
+            df.to_json(out, orient="records", force_ascii=False)
+        self._logger.info("%s Export → %s", CFG.EMOJI_EXPORT, out.name)
         return out, df
 
-    # résumé énergie/cache
-    def summary(self) -> None:
-        t_tot = sum(t for t, _ in self.energy_log)
-        c_tot = sum(c for _, c in self.energy_log)
-        self.logger.info(
-            "%s  Temps total : %.2f s | %s  CO₂ total : %.6f kg | %s  Cache : %d entrées",
-            CFG.EMOJI_ENERGY,
-            t_tot,
-            CFG.EMOJI_CO2,
-            c_tot,
-            CFG.EMOJI_CACHE,
-            len(self.cache),
+    def summary(self):
+        total_t = sum(t for t, _ in self._energy_log)
+        total_c = sum(c for _, c in self._energy_log)
+        self._logger.info(
+            "%s Total time: %.2fs | %s CO₂: %.6f kg | %s Cache size: %d",
+            CFG.EMOJI_ENERGY, total_t, CFG.EMOJI_CO2, total_c,
+            CFG.EMOJI_CACHE, len(self._cache)
         )
 
+# ───────────────────────────────────────────────────────────────────────────
+# FastAPI service
+# ───────────────────────────────────────────────────────────────────────────
+if FastAPI:
+    class _Payload(BaseModel):
+        text: str
 
-# ──────────────────────────────────────────────────────────────────────────────
-# CLI rapide  →  `python -m ecoai -t "Some text"`
-# ──────────────────────────────────────────────────────────────────────────────
-def _cli() -> None:
-    parser = argparse.ArgumentParser(description="EcoAI quick sentiment CLI")
-    parser.add_argument("-t", "--text", required=True, help="Text to analyse")
-    parser.add_argument("-p", "--password", default="change-me!", help="Master password")
+    app = FastAPI(title="EcoAI API", version=__version__)
+
+    @app.on_event("startup")
+    def _startup():
+        pwd = os.getenv("ECOAI_PASSWORD", "please-change-me")
+        app.state.eco = EcoAI(master_password=pwd, use_gpu=True)
+
+    @app.post("/predict")
+    def predict(payload: _Payload):
+        try:
+            return app.state.eco.predict(payload.text)
+        except CryptoError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except APIError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+# ───────────────────────────────────────────────────────────────────────────
+# CLI
+# ───────────────────────────────────────────────────────────────────────────
+def _cli():
+    parser = argparse.ArgumentParser(description="EcoAI CLI")
+    g = parser.add_mutually_exclusive_group(required=True)
+    g.add_argument("-t", "--text", help="Texte à analyser")
+    g.add_argument("-b", "--batch", nargs="+", help="Batch de textes")
+    parser.add_argument("-p", "--password", required=True, help="Mot de passe maître")
+    parser.add_argument("--lite", action="store_true", help="Modèle léger")
+    parser.add_argument("--quant", choices=["int8", "fp16", "fp32"], default="int8", help="Quantization")
+    parser.add_argument("--gpu", action="store_true", help="Activer GPU si disponible")
     args = parser.parse_args()
 
-    eco = EcoAI(master_password=args.password)
-    res = eco.predict(args.text)
-    print(f"{args.text!r} → {res['label']} ({res['score']:.2%})")
+    eco = EcoAI(
+        master_password=args.password,
+        quant_dtype=args.quant,
+        lite=args.lite,
+        use_gpu=args.gpu,
+    )
+    if args.text:
+        r = eco.predict(args.text)
+        print(f"'{args.text}' → {r['label']} ({r['score']:.2%})")
+    else:
+        res = eco.batch_predict(args.batch)
+        for t, pp in zip(args.batch, res):
+            print(f"'{t}' → {pp['label']} ({pp['score']:.2%})")
     eco.summary()
-
 
 if __name__ == "__main__":
     _cli()
