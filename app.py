@@ -1,217 +1,213 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-EcoLLM – Inference LLM ultra-économe :
-  • Quantification int8 locale (transformers + bitsandbytes)
-  • Option Micro-LLM distillé (< 100 Mo) pour Pi Zero
-  • Cache chiffré des réponses (portalocker + JSON)
-  • Batching & planification OFF-PEAK
-  • Suivi CO₂ (CodeCarbon)
-  • CLI, API FastAPI & snippet client-side cache
-  • Edge-ready (Cloudflare Workers)
-"""
-
-from __future__ import annotations
-import argparse, atexit, contextlib, hashlib, json, logging
-import os, queue, sched, sys, threading, time
-from dataclasses import dataclass, field
-from datetime import datetime, time as dt_time
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import time
 from pathlib import Path
-from threading import Event
-from typing import Any, List, Optional, Iterable, Dict
+from typing import Optional, Dict, List, Any
 
-import torch
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    pipeline
-)
-from codecarbon import EmissionsTracker
-import portalocker
+import aiosqlite
+import faiss
+import numpy as np
+import redis.asyncio as redis
+from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from llama_cpp import Llama
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
-# ─────────────────────────────── Configuration ──────────────────────────────── #
-LOG_FORMAT       = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
-CACHE_DIR        = Path(os.getenv("CACHE_DIR", "eco_cache"))
-CACHE_FILE       = os.getenv("CACHE_FILE", "llm_cache.json")
-EMISSIONS_CSV    = os.getenv("EMISSIONS_CSV", "emissions.csv")
-OFFPEAK_START    = os.getenv("OFFPEAK_START", "00:00")
-OFFPEAK_END      = os.getenv("OFFPEAK_END",   "06:00")
-# Basique ou micro-distilled (taille <100 Mo) via env USE_MICRO=1
-LLM_MODEL        = os.getenv("LLM_MODEL", "gpt2")
-MICRO_MODEL_PATH = os.getenv("MICRO_MODEL_PATH", "micro-gpt.pt")
-USE_MICRO        = bool(int(os.getenv("USE_MICRO", "0")))
-BATCH_SIZE       = int(os.getenv("BATCH_SIZE", "4"))
-QUANT_THRESHOLD  = float(os.getenv("LLM_INT8_THRESHOLD", "6.0"))
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-log = logging.getLogger("EcoLLM")
+# --- CONFIGURATION ULTIME ---
+class Settings:
+    MODEL_PATH: str = os.getenv("MODEL_PATH", "models/tinyllama.gguf")
+    VECTOR_DIM: int = 384
+    RERANK_THRESHOLD: float = 0.82 
+    L1_EXPIRE: int = 604800  # 1 semaine
+    DB_PATH: str = "eco_cache/vault_v18.db"
+    FAISS_PATH: str = "eco_cache/vault_v18.index"
+    
+    # Gestion des ressources
+    MAX_CONCURRENT_LLM: int = 1  # Crucial pour la VRAM
+    LLM_MAX_TOKENS: int = 1024
+    CONTEXT_WINDOW: int = 4096
+    DEVICE: str = "cuda" if os.getenv("USE_CUDA") else "cpu"
+    
+    # Sauvegarde périodique
+    SAVE_INTERVAL: int = 300 # 5 minutes
 
-# ─────────────────────────────── File Lock ──────────────────────────────────── #
-@contextlib.contextmanager
-def file_lock(path: Path, timeout: int = 10) -> Iterable[None]:
-    lockfile = path.with_suffix(".lock")
-    with portalocker.Lock(str(lockfile), timeout=timeout):
-        yield
+settings = Settings()
+logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
+logger = logging.getLogger("EcoLLM-V18-Final")
 
-# ───────────────────────────── Cache Manager ────────────────────────────────── #
-class CacheManager:
-    def __init__(self, base_dir: Path, filename: str):
-        self.base_dir = base_dir; self.base_dir.mkdir(exist_ok=True, parents=True)
-        self.path = self.base_dir/filename
-        self._load()
+class ChatQuery(BaseModel):
+    prompt: str = Field(..., min_length=2, max_length=2000)
 
-    def _load(self):
-        if self.path.is_file():
-            try:
-                with file_lock(self.path):
-                    self.store = json.loads(self.path.read_text())
-            except Exception:
-                log.warning("Cache corrompu → reset")
-                self.store = {}
+class GlobalEngine:
+    def __init__(self):
+        self.encoder = None
+        self.reranker = None
+        self.llm = None
+        self.index = None
+        self.db = None
+        self.redis = None
+        self.is_ready = False
+        self._index_lock = asyncio.Lock()
+        self._inference_sem = asyncio.Semaphore(settings.MAX_CONCURRENT_LLM)
+        self.index_dirty = False
+
+    async def setup(self):
+        Path("eco_cache").mkdir(exist_ok=True)
+        loop = asyncio.get_running_loop()
+
+        logger.info("🚀 Loading Neural Engines...")
+        self.encoder = await loop.run_in_executor(None, lambda: SentenceTransformer("all-MiniLM-L6-v2", device=settings.DEVICE))
+        self.reranker = await loop.run_in_executor(None, lambda: CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=settings.DEVICE))
+        
+        self.llm = Llama(
+            model_path=settings.MODEL_PATH,
+            n_ctx=settings.CONTEXT_WINDOW,
+            n_gpu_layers=-1 if settings.DEVICE == "cuda" else 0,
+            flash_attn=True,
+            verbose=False
+        )
+
+        # SQLite avec optimisation WAL
+        self.db = await aiosqlite.connect(settings.DB_PATH, isolation_level=None)
+        await self.db.execute("PRAGMA journal_mode=WAL;")
+        await self.db.execute("PRAGMA synchronous=NORMAL;")
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS vault (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                p_hash TEXT UNIQUE, 
+                prompt TEXT, 
+                resp TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # FAISS
+        if Path(settings.FAISS_PATH).exists():
+            self.index = await loop.run_in_executor(None, faiss.read_index, settings.FAISS_PATH)
         else:
-            self.store = {}
+            # HNSW pour la rapidité de recherche
+            self.index = faiss.IndexIDMap2(faiss.IndexHNSWFlat(settings.VECTOR_DIM, 32))
 
-    def save(self):
+        self.redis = redis.from_url("redis://localhost:6379", decode_responses=True)
+        
+        # Warm-up
+        _ = self.encoder.encode("warmup")
+        self.is_ready = True
+        
+        # Lancer le daemon de sauvegarde
+        asyncio.create_task(self._autosave_daemon())
+        logger.info("💎 System Status: 10/10 READY")
+
+    async def _autosave_daemon(self):
+        """Sauvegarde l'index périodiquement si des changements ont eu lieu."""
+        while True:
+            await asyncio.sleep(settings.SAVE_INTERVAL)
+            if self.index_dirty:
+                async with self._index_lock:
+                    await asyncio.to_thread(faiss.write_index, self.index, settings.FAISS_PATH)
+                    self.index_dirty = False
+                    logger.info("💾 FAISS index auto-saved.")
+
+    async def get_semantic_match(self, query: str) -> Optional[str]:
+        q_vec = await asyncio.to_thread(lambda: self.encoder.encode([query], normalize_embeddings=True).astype("float32"))
+        
+        async with self._index_lock:
+            distances, indices = self.index.search(q_vec, 5)
+        
+        valid_ids = [int(i) for i in indices[0] if i >= 0]
+        if not valid_ids: return None
+
+        # Fetch bulk
+        async with self.db.execute(f"SELECT prompt, resp FROM vault WHERE id IN ({','.join('?'*len(valid_ids))})", valid_ids) as cursor:
+            rows = await cursor.fetchall()
+        
+        if not rows: return None
+        
+        # Reranking pour précision chirurgicale
+        pairs = [[query, r[0]] for r in rows]
+        scores = await asyncio.to_thread(self.reranker.predict, pairs)
+        best_idx = int(np.argmax(scores))
+        
+        if scores[best_idx] > settings.RERANK_THRESHOLD:
+            return rows[best_idx][1]
+        return None
+
+engine = GlobalEngine()
+app = FastAPI(title="EcoLLM Platinum V18")
+
+@app.on_event("startup")
+async def startup():
+    await engine.setup()
+
+@app.post("/chat")
+async def chat(query: ChatQuery, request: Request, background_tasks: BackgroundTasks):
+    start_t = time.perf_counter()
+    p_norm = " ".join(query.prompt.lower().strip().split())
+    p_hash = hashlib.blake2b(p_norm.encode(), digest_size=16).hexdigest()
+
+    async def stream_logic():
+        # --- L1: REDIS ---
         try:
-            with file_lock(self.path):
-                self.path.write_text(json.dumps(self.store, ensure_ascii=False))
-        except Exception as e:
-            log.error("Impossible de sauvegarder le cache : %s", e)
+            cached = await engine.redis.get(f"v18:{p_hash}")
+            if cached:
+                yield f"data: {json.dumps({'src': 'L1', 't': cached, 'ms': (time.perf_counter()-start_t)*1000})}\n\n"
+                return
+        except Exception: pass
 
-    def get(self, key: str) -> Optional[str]:
-        return self.store.get(key)
+        # --- L2: SEMANTIC ---
+        semantic = await engine.get_semantic_match(p_norm)
+        if semantic:
+            background_tasks.add_task(engine.redis.setex, f"v18:{p_hash}", settings.L1_EXPIRE, semantic)
+            yield f"data: {json.dumps({'src': 'L2', 't': semantic, 'ms': (time.perf_counter()-start_t)*1000})}\n\n"
+            return
 
-    def set(self, key: str, val: str):
-        self.store[key] = val; self.save()
-
-# ───────────────────────────── Scheduler & Queue ───────────────────────────── #
-@dataclass
-class Job:
-    prompt: str
-
-class JobScheduler:
-    def __init__(self, fn):
-        self.fn        = fn
-        self.queue     = queue.Queue()
-        self.scheduler = sched.scheduler(time.time, time.sleep)
-        self.stop_evt  = Event()
-        atexit.register(self.shutdown)
-        threading.Thread(target=self._run, daemon=True).start()
-
-    def _in_offpeak(self)->bool:
-        now   = datetime.now().time()
-        start = dt_time.fromisoformat(OFFPEAK_START)
-        end   = dt_time.fromisoformat(OFFPEAK_END)
-        if start<=end: return start<=now<end
-        return now>=start or now<end
-
-    def submit(self, job: Job):
-        self.queue.put(job)
-        if self._in_offpeak():
-            self.scheduler.enter(0,1,self._drain)
-
-    def _drain(self):
-        batch=[]
-        while not self.queue.empty() and len(batch)<BATCH_SIZE:
-            batch.append(self.queue.get())
-        if batch:
-            self.fn([j.prompt for j in batch])
-
-    def _run(self):
-        while not self.stop_evt.is_set():
-            if self._in_offpeak() and not self.queue.empty():
-                self.scheduler.enter(0,1,self._drain)
-                self.scheduler.run(blocking=False)
-            time.sleep(300)
-
-    def shutdown(self):
-        self.stop_evt.set()
-
-# ─────────────────────────────── EcoLLM Core ────────────────────────────────── #
-@dataclass
-class EcoLLM:
-    cache:     CacheManager = field(default_factory=lambda: CacheManager(CACHE_DIR, CACHE_FILE))
-    tracker:   EmissionsTracker = field(init=False)
-    scheduler: JobScheduler    = field(init=False)
-    pipe:      Any             = field(init=False)
-
-    def __post_init__(self):
-        # Choix micro ou standard
-        if USE_MICRO and Path(MICRO_MODEL_PATH).is_file():
-            log.info("Chargement Micro-LLM depuis %s", MICRO_MODEL_PATH)
-            self.model     = torch.load(MICRO_MODEL_PATH, map_location="cpu")
-            self.tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL)
-            self.pipe      = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer)
-        else:
-            log.info("Chargement LLM %s quantifié int8", LLM_MODEL)
-            bnb_cfg = BitsAndBytesConfig(load_in_8bit=True, llm_int8_threshold=QUANT_THRESHOLD)
-            self.tokenizer= AutoTokenizer.from_pretrained(LLM_MODEL)
-            self.model    = AutoModelForCausalLM.from_pretrained(
-                LLM_MODEL, quantization_config=bnb_cfg, device_map="auto"
+        # --- L3: INFERENCE (AVEC SEMAPHORE) ---
+        full_text = ""
+        async with engine._inference_sem:
+            loop = asyncio.get_running_loop()
+            # Template adaptable
+            prompt_formatted = f"### System: Etre précis et concis.\n### User: {query.prompt}\n### Assistant: "
+            
+            tokens = await loop.run_in_executor(
+                None, 
+                lambda: engine.llm(
+                    prompt=prompt_formatted,
+                    stream=True, 
+                    max_tokens=settings.LLM_MAX_TOKENS,
+                    stop=["###", "User:"]
+                )
             )
-            self.pipe     = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer)
 
-        # CO₂ tracker
-        self.tracker   = EmissionsTracker(measure_power_secs=15,
-                                          output_file=str(CACHE_DIR/EMISSIONS_CSV))
-        # Off-peak scheduler
-        self.scheduler = JobScheduler(self._infer_batch)
-        log.info("EcoLLM prêt (micro=%s, int8=%s)", USE_MICRO, not USE_MICRO)
+            for chunk in tokens:
+                if await request.is_disconnected(): break
+                t = chunk["choices"][0]["text"]
+                full_text += t
+                yield f"data: {json.dumps({'src': 'L3', 't': t})}\n\n"
 
-    def _key(self, prompt:str)->str:
-        return hashlib.sha256(prompt.encode()).hexdigest()
+        if len(full_text.strip()) > 5:
+            background_tasks.add_task(finalize_storage, p_hash, p_norm, full_text.strip())
 
-    def generate(self, prompt:str)->str:
-        key = self._key(prompt)
-        if (resp:=self.cache.get(key)):
-            return resp
-        job = Job(prompt)
-        if self.scheduler._in_offpeak():
-            self._infer_batch([prompt])
-        else:
-            log.info("Mise en file → off-peak")
-            self.scheduler.submit(job)
-            return "scheduled"
-        return self.cache.get(key)  # type: ignore
+    return StreamingResponse(stream_logic(), media_type="text/event-stream")
 
-    def _infer_batch(self, prompts:List[str]):
-        with self.tracker:
-            outs = self.pipe(prompts, max_length=256, batch_size=len(prompts))
-        for p,o in zip(prompts,outs):
-            txt=o["generated_text"]
-            self.cache.set(self._key(p), txt)
-            log.debug("Prompt caché")
+async def finalize_storage(h: str, p: str, r: str):
+    try:
+        # Utilisation de aiosqlite pour ne pas bloquer
+        async with engine.db.execute("INSERT OR IGNORE INTO vault (p_hash, prompt, resp) VALUES (?, ?, ?)", (h, p, r)) as cursor:
+            if cursor.rowcount > 0:
+                rid = cursor.lastrowid
+                vec = await asyncio.to_thread(lambda: engine.encoder.encode([p], normalize_embeddings=True).astype("float32"))
+                async with engine._index_lock:
+                    engine.index.add_with_ids(vec, np.array([rid], dtype=np.int64))
+                    engine.index_dirty = True
+        
+        await engine.redis.setex(f"v18:{h}", settings.L1_EXPIRE, r)
+    except Exception as e:
+        logger.error(f"Finalize error: {e}")
 
-# ─────────────────────────────── API Layer ─────────────────────────────────── #
-if "fastapi" in sys.modules:
-    from fastapi import FastAPI, HTTPException
-    from pydantic import BaseModel
-
-    class Payload(BaseModel):
-        prompt:str
-
-    app=FastAPI(title="EcoLLM API")
-
-    @app.on_event("startup")
-    def on_startup():
-        if not os.getenv("ECO_PASSWORD"):
-            log.error("ECO_PASSWORD non défini"); sys.exit(1)
-        app.state.eco = EcoLLM()
-
-    @app.post("/generate")
-    def generate(p:Payload)->Dict[str,str]:
-        try: return {"result": app.state.eco.generate(p.prompt)}
-        except Exception as e: raise HTTPException(500,str(e))
-
-# ─────────────────────────────────── CLI ────────────────────────────────────── #
-def main():
-    p=argparse.ArgumentParser("EcoLLM CLI")
-    p.add_argument("-p","--prompt", required=True, help="Texte d'entrée")
-    p.add_argument("-v","--verbose", action="store_true")
-    args=p.parse_args()
-    if args.verbose: log.setLevel(logging.DEBUG)
-    eco=EcoLLM()
-    print(eco.generate(args.prompt))
-
-if __name__=="__main__":
-    main()
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, access_log=False)
