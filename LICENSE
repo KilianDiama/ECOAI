@@ -1,90 +1,19 @@
-# SPDX‐License‐Identifier: Fair-Code-1.0
-──────────────────────────────────────────────────────────────────────────────
-                     FAIR CODE LICENSE – Version 1.0 (English)
-──────────────────────────────────────────────────────────────────────────────
-Author      : Matthieu Ouvrard  
-Contact     : diamajax@gmail.com  
-Year        : 2025  
-Support     : ETH wallet 0x07CeD065d11A15df605eAB2571cc67D2384f3Af2  
-──────────────────────────────────────────────────────────────────────────────
+License - EcoLLM
+1. Personal and Educational Use
+You are free to use, modify, and distribute EcoLLM for personal, educational, or non-commercial purposes. No fees or royalties apply for non-commercial use.
 
-0 ▌ PREAMBLE & DEFINITIONS
-──────────────────────────
-“**Software**” means this source code, associated binaries, documentation  
-and all copies or substantial portions thereof.  
-“**Commercial Use**” means any use that delivers *direct or indirect*  
-financial benefit, including (but not limited to) SaaS hosting, resale,  
-renting, paid support, advertising, or bundling in a paid product/service.  
-“**Revenue**” means the gross income before taxes that is attributable to  
-Commercial Use of the Software.  
-“**You** / **Your**” means any individual or legal entity exercising rights  
-under this licence.  
+2. Commercial Use
+Any use of EcoLLM that generates revenue, directly or indirectly, requires a commercial license.
 
-1 ▌ FREE & OPEN-SOURCE USE
-──────────────────────────
-For **non-commercial** purposes, or within an **OSI-approved open-source  
-project**, You may freely *use, study, copy, modify, merge, publish and  
-redistribute* the Software without owing any fee to the Author.
+Royalties are to be paid to the author, ranging from 8% to 30% of the revenue generated, depending on the scale of usage and profit. The exact royalty percentage and payment terms must be agreed upon with the author prior to commercial deployment.
 
-2 ▌ FAIR COMMERCIAL USE
-───────────────────────
-Commercial Use is permitted **only if** You fairly compensate the Author
-according to the schedule below **or** obtain a separate written agreement.
+3. Redistribution and Integration
+Redistribution or integration of EcoLLM into other commercial products or services also requires a commercial license. The same royalty conditions apply as in Section 2.
 
-▪ **Revenue-sharing schedule**  
-  • Use *as-is* ………………… 15 % of related Revenue  
-  • *Modified / improved* version ……… 10 %  
-  • *Substantially re-worked* version, whose functionality clearly exceeds  
-    the original ………………………………………… 5 % – or **0 %** if the original
-    contribution is truly marginal (honour system).
+4. Disclaimer
+This software is provided "as is", without warranty of any kind, express or implied. The author is not liable for any damages arising from the use of this software.
 
-▪ **Small-revenue exemption** If Your annual Revenue attributable to the
-   Software is **below 10 000 €**, no payment is required.
+5. Contact
+To obtain a commercial license or negotiate royalties, please contact the author at:
 
-▪ **Fixed buy-out option** You may, in lieu of sharing Revenue, negotiate a
-   one-time licence fee with the Author.
-
-▪ **Reporting & audit** Upon written request (no more than once per calendar
-   year) You shall provide reasonable documentation of Revenue connected to
-   the Software. The Author shall treat such information as confidential.
-
-3 ▌ TRANSPARENCY & ATTRIBUTION
-──────────────────────────────
-• The Author’s name **“Matthieu Ouvrard”** must appear in any UI,
-  documentation, “About” box or marketing material referring to the Software.  
-• A complete, unaltered copy of this licence **must** accompany every
-  distribution of the Software or a derivative work.
-
-4 ▌ NO WARRANTY
-───────────────
-THE SOFTWARE IS PROVIDED **“AS IS”** WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED. THE AUTHOR SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGE OR OTHER
-LIABILITY ARISING FROM ITS USE.
-
-5 ▌ GOVERNING LAW & JURISDICTION
-────────────────────────────────
-This licence is governed by the laws of **France**. Any dispute shall be
-submitted to the exclusive jurisdiction of the courts of **Paris, France**.
-
-6 ▌ TERMINATION
-───────────────
-Any breach of Sections 2 or 3 immediately terminates the rights granted to
-You. Upon termination, You must cease all use of the Software or obtain a new
-written licence from the Author.
-
-7 ▌ COMMUNITY SPIRIT
-────────────────────
-This licence relies on **fairness and good faith**.  It encourages  
-• Transparency • Respect for contributors • A focus on code quality over
-personal gain.
-
-8 ▌ LICENCE UPDATES
-───────────────────
-The Author may publish new versions of this licence.  Existing projects may
-continue to use the version under which they were originally licensed, or may
-upgrade at their option.
-
-──────────────────────────────────────────────────────────────────────────────
-Using, distributing or modifying this Software signifies **acceptance** of
-all the terms above.
-──────────────────────────────────────────────────────────────────────────────
+[Ton email ou contact ici]
